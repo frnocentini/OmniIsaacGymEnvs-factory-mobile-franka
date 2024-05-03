@@ -40,7 +40,7 @@ import torch
 
 from omniisaacgymenvs.tasks.factory.factory_schema_class_env import FactoryABCEnv
 from omniisaacgymenvs.tasks.factory.factory_schema_config_env import FactorySchemaConfigEnv
-from omniisaacgymenvs.tasks.factory.cube_mobile_ws_env import CubeBase
+from omniisaacgymenvs.tasks.factory.cube_mobile_ws_base import CubeMobileBase
 from omni.isaac.core.materials import PreviewSurface
 
 import omniisaacgymenvs.tasks.factory.factory_control as fc
@@ -92,7 +92,7 @@ class CubeMobileWS(CubeMobileBase, FactoryABCEnv):
     
 
     def set_up_scene(self, scene) -> None:
-        self.import_franka_assets()
+        self.import_mobile_franka_assets()
         self.get_cube()
         self.get_sphere()
         # self.get_box()

@@ -48,8 +48,9 @@ class CubeMobileBase(RLTask, FactoryABCBase):
         self._num_envs = sim_config.task_config["env"]["numEnvs"]
         self._num_observations = sim_config.task_config["env"]["numObservations"]
         self._num_actions = sim_config.task_config["env"]["numActions"]
-        #PRESO DA ANYMAL
-        self._omniwheels_radius = self._task_cfg["env"]["omniwheels"]["radius"]
+        self.lin_vel_scale = self._task_cfg["env"]["learn"]["linearVelocityScale"]
+        self.ang_vel_scale = self._task_cfg["env"]["learn"]["angularVelocityScale"]
+        
 
 
         self.USE_CUROBO = False
@@ -108,7 +109,7 @@ class CubeMobileBase(RLTask, FactoryABCBase):
             "yaml"
         ]  # strip superfluous nesting
 
-    def import_franka_assets(self, add_to_stage=True):
+    def import_mobile_franka_assets(self, add_to_stage=True):
         """Set Franka and table asset options. Import assets."""
 
         self._stage = get_current_stage()
@@ -155,7 +156,7 @@ class CubeMobileBase(RLTask, FactoryABCBase):
                         rb.GetAngularDampingAttr().Set(0.5)
                         rb.GetMaxAngularVelocityAttr().Set(64 / math.pi * 180)
 
-            table_translation = np.array(
+            table_translation = np.array(  #qui serve per allontanare il tavolo dal franka, se diminuisco la x si allontana ancora
                 [-0.2 - 0.65 , 0.0, self.cfg_base.env.table_height * 0.5]
             )
             table_orientation = np.array([1.0, 0.0, 0.0, 0.0])
@@ -189,8 +190,9 @@ class CubeMobileBase(RLTask, FactoryABCBase):
 
     def acquire_base_tensors(self):
         """Acquire tensors."""
-
-        self.num_dofs = 9
+        #sum of joints, 9 for frankas, 4 for wheels
+        self.num_dofs_franka = 9
+        self.num_dof_base = 4
         self.env_pos = self._env_pos
 
         self.actions = torch.zeros(
@@ -199,10 +201,10 @@ class CubeMobileBase(RLTask, FactoryABCBase):
         self.last_actions = torch.zeros(
             (self.num_envs, self.num_actions), device=self.device
         )
-        self.dof_pos = torch.zeros((self.num_envs, self.num_dofs), device=self.device)
-        self.dof_vel = torch.zeros((self.num_envs, self.num_dofs), device=self.device)
+        self.dof_pos = torch.zeros((self.num_envs, self.num_dofs_franka), device=self.device)
+        self.dof_vel = torch.zeros((self.num_envs, self.num_dofs_franka), device=self.device)
         self.dof_torque = torch.zeros(
-            (self.num_envs, self.num_dofs), device=self.device
+            (self.num_envs, self.num_dofs_franka), device=self.device
         )
         self.fingertip_contact_wrench = torch.zeros(
             (self.num_envs, 6), device=self.device
@@ -215,7 +217,7 @@ class CubeMobileBase(RLTask, FactoryABCBase):
             (self.num_envs, 4), device=self.device
         )
         self.ctrl_target_dof_pos = torch.zeros(
-            (self.num_envs, self.num_dofs), device=self.device
+            (self.num_envs, self.num_dofs_franka), device=self.device
         )
         self.ctrl_target_gripper_dof_pos = torch.zeros(
             (self.num_envs, 2), device=self.device
@@ -224,17 +226,26 @@ class CubeMobileBase(RLTask, FactoryABCBase):
             (self.num_envs, 6), device=self.device
         )
 
-        self.prev_actions = torch.zeros(
-            (self.num_envs, self.num_actions), device=self.device
-        )
+        
         #PRESO DA RUOTE PER ANYMAL
-        self.wheels_vel = torch.zeros((self.num_envs, 4), dtype=torch.float, device=self.device, requires_grad=False)
+        self.commands = torch.zeros((self.num_envs, self.num_dof_base), dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
+        self.commands_scale = torch.tensor([self.lin_vel_scale, self.lin_vel_scale, self.ang_vel_scale], device=self.device, requires_grad=False,)
+       
 
-        self.wheels_acc = torch.zeros((self.num_envs, 4), dtype=torch.float, device=self.device, requires_grad=False)
-        self.wheels_mat = torch.ones((self.num_envs, 3, 4), dtype=torch.float, device=self.device, requires_grad=False) / self._omniwheels_radius
+        self.wheels_vel = torch.zeros(
+            (self.num_envs, self.num_dof_base), dtype=torch.float, device=self.device, requires_grad=False) #velocità lineare ruote (in che frame??)
+
+        self.wheels_acc = torch.zeros(
+            (self.num_envs,  self.num_dof_base), dtype=torch.float, device=self.device, requires_grad=False)
+        #sono 4 perchè 4 ruote e 3 perchè contiene le posizioni
+        self.wheels_mat = torch.ones(
+            (self.num_envs, 3, self.num_dof_base), dtype=torch.float, device=self.device, requires_grad=False) / self._omniwheels_radius
         self.wheels_mat[:, 1, [0, 3]] *= -1.
         self.wheels_local_pos = torch.zeros((self.num_envs, 4, 3), 
                                             dtype=torch.float, device=self.device)
+        self.wheels_pos = torch.zeros((self.num_envs * self.num_dof_base, 3), dtype=torch.float, device=self.device)
+        self.wheels_quat = torch.zeros((self.num_envs * self.num_dof_base, 4), dtype=torch.float, device=self.device)
+        self.wheels_local_pos = torch.zeros((self.num_envs, self.num_dof_base, 3), dtype=torch.float, device=self.device)
 
 
     def refresh_base_tensors(self):
@@ -243,8 +254,12 @@ class CubeMobileBase(RLTask, FactoryABCBase):
         if not self.world.is_playing():
             return
 
-        self.dof_pos = self.frankas_mobile.get_joint_positions(clone=False)
-        self.dof_vel = self.frankas_mobile.get_joint_velocities(clone=False)
+        #preso da anymal
+        self.last_dof_vel[:] = self.dof_vel[:]
+        self.dof_pos[:] = self.frankas_mobile.get_joint_positions(clone=False)
+        self.dof_vel[:] = self.frankas_mobile.get_joint_velocities(clone=False)
+        self.wheels_acc[:] = (self.dof_vel[:, 12:16] - self.last_dof_vel[:, 12:16]) / self.control_dt
+
 
         # Jacobian shape: [4, 11, 6, 9] (root has no Jacobian)
         self.franka_jacobian = self.frankas_mobile.get_jacobians()

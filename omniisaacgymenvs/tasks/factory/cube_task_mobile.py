@@ -25,6 +25,7 @@ from omniisaacgymenvs.tasks.factory.cube_mobile_ws_env import CubeMobileWS
 from omniisaacgymenvs.tasks.factory.factory_schema_class_task import FactoryABCTask
 from omniisaacgymenvs.tasks.factory.factory_schema_config_task import FactorySchemaConfigTask
 import omniisaacgymenvs.tasks.factory.factory_control_mobile as fc
+from omni.isaac.core.utils.torch.maths import torch_rand_float
 
 from omni.isaac.core.simulation_context import SimulationContext
 from omni.isaac.core.utils.torch.transformations import *
@@ -81,23 +82,32 @@ class CubeMobileTask(CubeMobileWS, FactoryABCTask):
         self.named_default_joint_velocities = self._task_cfg["env"]["defaultJointVelocities"]
 
         # other
-        self.decimation = self._task_cfg["env"]["control"]["decimation"]
-        self.sim_dt = self._task_cfg["sim"]["dt"]
-        self.real_control_frequency_inv = self._task_cfg["env"]["realControlFrequencyInv"]
-        self.control_dt = self.real_control_frequency_inv * self.sim_dt
-        self.policy_dt = self.decimation * self.control_dt
-        self.max_episode_length_s = self._task_cfg["env"]["learn"]["episodeLength_s"]
-        self.max_episode_length = int(self.max_episode_length_s/ self.policy_dt + 0.5)
-        self.push_interval = int(self._task_cfg["env"]["learn"]["pushInterval_s"] / self.policy_dt + 0.5)
+        #self.sim_dt = self._task_cfg["sim"]["dt"]
+        #self.real_control_frequency_inv = self._task_cfg["env"]["realControlFrequencyInv"]
+        #self.control_dt = self.real_control_frequency_inv * self.sim_dt
+        #self.policy_dt = self.decimation * self.control_dt
         self.Kp_pos = self._task_cfg["env"]["control"]["stiffnessPos"]
         self.Kd_pos = self._task_cfg["env"]["control"]["dampingPos"]
         self.Kp_vel = self._task_cfg["env"]["control"]["stiffnessVel"]
         self.Kd_vel = self._task_cfg["env"]["control"]["dampingVel"]
-        self.curriculum = self._task_cfg["env"]["terrain"]["curriculum"]
         self.base_threshold = 0.2
-        self.knee_threshold = 0.1
+        #self.knee_threshold = 0.1
 
+        # normalization
+        self.dof_pos_scale = self._task_cfg["env"]["learn"]["dofPositionScale"]
+        self.dof_vel_scale = self._task_cfg["env"]["learn"]["dofVelocityScale"]
+        self.dof_acc_scale = self._task_cfg["env"]["learn"]["dofAccelerationScale"]
+        self.height_meas_scale = self._task_cfg["env"]["learn"]["heightMeasurementScale"]
+        self.action_scale_pos = self._task_cfg["env"]["control"]["actionScalePos"]
+        self.action_scale_vel = self._task_cfg["env"]["control"]["actionScaleVel"]
+
+
+        #from anymal
         self._omniwheels_radius = self._task_cfg["env"]["omniwheels"]["radius"]
+        #command ranges
+        self.command_x_range = self._task_cfg["env"]["randomCommandVelocityRanges"]["linear_x"]
+        self.command_y_range = self._task_cfg["env"]["randomCommandVelocityRanges"]["linear_y"]
+        self.command_yaw_range = self._task_cfg["env"]["randomCommandVelocityRanges"]["yaw"]
 
 
     def post_reset(self):
@@ -193,6 +203,8 @@ class CubeMobileTask(CubeMobileWS, FactoryABCTask):
 
         self.actions = actions.clone().to(self.device)  # shape = (num_envs, num_actions); values = [-1, 1]
         self.previous_actions = self.actions.clone().to(self.device)
+        #this is the step when wheels velocity targets are genereted 
+        self.compute_wheels_velocities()
         for i in range(self.decimation):
             if self.world.is_playing():
                 self._apply_actions_as_ctrl_targets(
@@ -210,9 +222,9 @@ class CubeMobileTask(CubeMobileWS, FactoryABCTask):
         self._reset_task()
         SimulationContext.step(self.world, render=False)
         self.refresh_base_tensors()
-        self.refresh_env_tensors()
+        self.refresh_env_tensors() #n
         self._refresh_task_tensors()
-        self._reset_franka(env_ids)
+        self._reset_mobile_franka(env_ids)
         self._replace_cube(env_ids)
         self.refresh_base_tensors()
         self.refresh_env_tensors()
@@ -242,7 +254,7 @@ class CubeMobileTask(CubeMobileWS, FactoryABCTask):
         # self.max_episode_length += episode_lenght_noise
 
 
-    def _reset_franka(self, env_ids):
+    def _reset_mobile_franka(self, env_ids):
         """Reset DOF states and DOF targets of Franka."""
         indices = env_ids.to(dtype=torch.int32)
 
@@ -250,6 +262,7 @@ class CubeMobileTask(CubeMobileWS, FactoryABCTask):
             (torch.tensor(self.cfg_task.randomize.franka_arm_initial_dof_pos, device=self.device),
              torch.tensor([self.asset_info_franka_table.franka_gripper_width_max], device=self.device),
              torch.tensor([self.asset_info_franka_table.franka_gripper_width_max], device=self.device)),
+             torch.tensot(self.cfg_task.randomize.base_initial_dof_pos, device = self.device),
             dim=-1).unsqueeze(0).repeat((self.num_envs, 1))  # shape = (num_envs, num_dofs)
         
         self.dof_vel[env_ids] = 0.0  # shape = (num_envs, num_dofs)
@@ -258,6 +271,12 @@ class CubeMobileTask(CubeMobileWS, FactoryABCTask):
         self.frankas_mobile.set_joint_positions(self.dof_pos[env_ids], indices=indices)
         self.frankas_mobile.set_joint_velocities(self.dof_vel[env_ids], indices=indices)
         SimulationContext.step(self.world, render=False)
+
+        self.commands[env_ids, 0] = torch_rand_float(self.command_x_range[0], self.command_x_range[1], (len(env_ids), 1), device=self.device).squeeze()
+        self.commands[env_ids, 1] = torch_rand_float(self.command_y_range[0], self.command_y_range[1], (len(env_ids), 1), device=self.device).squeeze()
+        self.commands[env_ids, 2] = torch_rand_float(self.command_yaw_range[0], self.command_yaw_range[1], (len(env_ids), 1), device=self.device).squeeze()
+        self.commands[env_ids] *= (torch.norm(self.commands[env_ids, :2], dim=1) > 0.25).unsqueeze(1) # set small commands to zero
+
 
         self.refresh_base_tensors()
         self.refresh_env_tensors()
