@@ -1,0 +1,324 @@
+# See schema in factory_schema_config_task.py for descriptions of common parameters.
+
+defaults:
+    - _self_
+
+name: CubeMobileTask
+physics_engine: ${..physics_engine}
+
+sim:
+  use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+  dt:  0.005 #0.016667  # required, but overridden in FactoryBase.yaml
+  gravity: [0.0, 0.0, -9.81]  # required, but overridden in base FactoryBase.yaml
+  gravity_mag: 9.81
+  disable_gravity: False
+  add_ground_plane: False
+  add_distant_light: False
+  use_flatcache: True
+  enable_scene_query_support: True
+  disable_contact_processing: False
+
+  default_material:
+    static_friction: 1.0
+    dynamic_friction: 1.0
+    restitution: 0.0
+  
+  physx:
+    # per-scene
+    use_gpu: ${eq:${....sim_device},"gpu"}  # set to False to run on CPU
+    solver_type: ${....solver_type}  # 0: PGS, 1: TGS # TGS is based on "small steps" paper and is more stable
+    solver_position_iteration_count: 16    
+    solver_velocity_iteration_count: 0
+    contact_offset: 0.005
+    rest_offset: 0.0
+    worker_thread_count: ${....num_threads}
+    bounce_threshold_velocity: 0.2
+    friction_offset_threshold: 0.01
+    friction_correlation_distance: 0.00625
+    max_depenetration_velocity: 5.0
+    enable_sleeping: True
+    enable_stabilization: True
+
+    # GPU buffers
+    gpu_max_rigid_contact_count: 524288
+    gpu_max_rigid_patch_count: 33554432
+    gpu_found_lost_pairs_capacity: 8192
+    gpu_found_lost_aggregate_pairs_capacity: 262144 
+    gpu_total_aggregate_pairs_capacity: 1048576
+    gpu_max_soft_body_contacts: 1048576
+    gpu_max_particle_contacts: 1048576
+    gpu_heap_capacity: 33554432
+    gpu_temp_buffer_capacity: 16777216
+    gpu_max_num_partitions: 8
+
+  mobile_franka:
+    # -1 to use default values
+    override_usd_defaults: False
+    enable_self_collisions: True
+    enable_gyroscopic_forces: True
+    # also in stage params
+    # # per-actor
+    solver_position_iteration_count: 16
+    solver_velocity_iteration_count: 0
+    sleep_threshold: 0.005
+    stabilization_threshold: 0.001
+    # per-body
+    density: -1
+    max_depenetration_velocity: 5.0
+    # per-shape
+    contact_offset: 0.005
+    rest_offset: 0.0
+    #PRESO DA PROG GITHUB
+    fixed_base: False
+    enable_self_collisions: True
+    enable_gyroscopic_forces: True
+    # also in stage params
+    # per-actor
+    sleep_threshold: 0.005
+    stabilization_threshold: 0.001
+    # per-body
+    density: -1
+
+
+  cube:
+    # -1 to use default values
+    override_usd_defaults: False
+    fixed_base: False
+    enable_self_collisions: False
+    enable_gyroscopic_forces: True
+    # also in stage params
+    # per-actor
+    solver_position_iteration_count: 8
+    solver_velocity_iteration_count: 0
+    sleep_threshold: 0.005
+    stabilization_threshold: 0.0025
+    # per-body
+    density: 100
+    max_depenetration_velocity: 1000.0
+    # per-shape
+    contact_offset: 0.005
+    rest_offset: 0.0
+  table:
+    fixed_base: True
+  barrier:
+    fixed_base: True
+  base:
+
+
+env:
+  controlFrequencyInv: 1 # 2 # 60 hz
+  renderingInterval: 100
+  decimation: 1 #2
+
+  #PRESO DA YAML DI ANYMAL TERRAIN
+
+  baseInitState:
+    pos: [0.0, 0.0, 0.127] # x,y,z [m]
+    rot: [1.0, 0.0, 0.0, 0.0] # w,x,y,z [quat]
+    vLinear: [0.0, 0.0, 0.0]  # x,y,z [m/s]
+    vAngular: [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+
+  randomCommandVelocityRanges:
+    # train
+    linear_x: [-1., 1.] # min max [m/s]
+    linear_y: [-1., 1.]   # min max [m/s]
+    yaw: [-3.14, 3.14]    # min max [rad/s]
+
+  control:
+    # PD Drive parameters:
+    stiffnessPos: 80.0  # [N*m/rad]
+    dampingPos: 2.0     # [N*m*s/rad]
+    stiffnessVel: 7.0  # [N*m*s/rad]
+    dampingVel: 0.01     # [N*m*s^2/rad]
+    # action scale: target angle = actionScale * action + defaultAngle
+    actionScalePos: 0.5
+    actionScaleVel: 30.
+    # decimation: Number of control action updates @ sim DT per policy DT
+    #decimation: 4
+
+  defaultJointVelocities:
+    wheel_LF_joint: 0.  # 6.28  # 0.
+    wheel_LH_joint: 0.  # 6.28  # 0.
+    wheel_RF_joint: 0.  # 6.28  # 0.
+    wheel_RH_joint: 0.  # 6.28  # 0.
+
+  omniwheels:
+    mass: 1.
+    radius: 0.14
+
+    learn:
+    # rewards
+    terminalReward: 0.0
+    linearVelocityXYRewardScale: 1.0
+    linearVelocityZRewardScale: -4.0
+    angularVelocityXYRewardScale: -0.05
+    angularVelocityZRewardScale: 0.5
+    orientationRewardScale: -0.
+    torqueRewardScale: -0.00002
+    jointAccRewardScale: -0.0005
+    baseHeightRewardScale: -0.0
+    actionRateRewardScale: -0.01
+    fallenOverRewardScale: -1.0
+    # cosmetics
+    #hipRewardScale: -0. #25
+
+    # normalization
+    linearVelocityScale: 2.0
+    angularVelocityScale: 0.25
+    dofPositionScale: 1.0
+    dofVelocityScale: 0.05
+    dofAccelerationScale: 0.0025
+    heightMeasurementScale: 5.0
+
+    # noise 
+    addNoise: true
+    noiseLevel: 1.0 # scales other values
+    dofPositionNoise: 0.01
+    dofVelocityNoise: 1.5
+    dofAccelerationNoise: 1.5
+    linearVelocityNoise: 0.1
+    angularVelocityNoise: 0.2
+    gravityNoise: 0.05
+    heightMeasurementNoise: 0.06
+
+    #randomization
+    #pushInterval_s: 15
+
+    # episode length in seconds
+    #episodeLength_s: 20
+
+
+  numEnvs: ${resolve_default:128,${...num_envs}}
+  numObservations: 37 #33 # 25
+          # obs_tensors = [self.fingertip_midpoint_pos,     3
+          #               self.fingertip_midpoint_quat,     4
+          #               self.fingertip_midpoint_linvel,   3
+          #               self.fingertip_midpoint_angvel,   3
+          #               self.cube_grasp_pos,              3
+          #               self.cube_grasp_quat,             4
+          #               rem_time,                         1
+          #               d_to_goal,                        3
+          #               ep_length_tensor,]                1
+  numActions: 12 #8         # 12 for position (3), rotation (3), (2) gripper pose, (4) wheels 
+
+# domain_randomization:
+#   randomize: True
+#   rigid_prim_views:
+#     cube_view:
+
+randomize:
+  franka_arm_initial_dof_pos: [0.3592, -0.3093,  0.2254, -2.3489,  0.2915,  1.9132,  1.3769]
+  base_initial_dof_pos: [0, 0, 0, 0]
+  fingertip_midpoint_pos_initial: [0.0, -0.2, 0.2]  # initial position of hand above table
+  fingertip_midpoint_rot_initial: [3.1416, 0, 3.1416]  # initial rotation of fingertips (Euler)
+  fingertip_midpoint_pos_noise:  [0.1, 0.1, 0.05]  #[0.5, 0.5, 0.3]  # noise on hand position
+  fingertip_midpoint_rot_noise: [0.1, 0.1, 0.1] #[1.0, 1.0, 1.0]  # noise on rotation (euler, radians)
+
+  # base #BaseInitState (preso da anymal)
+  base_initial_pos: [0.0, 0.0, 0.0.04] # x,y,z [m] da vedere se è ok
+  base_initial_rot: [1.0, 0.0, 0.0, 0.0] # w,x,y,z [quat]
+  base_initial_vLinear: [0.0, 0.0, 0.0]  # x,y,z [m/s]
+  base_initial_vAngular: [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+
+
+  cube_pos_initial_max_r: 0.5  # initial max distance from center
+  cube_pos_min_r: 0.4
+  
+  cube_pos_xy_initial_noise: [0.1, 0.05] #[0.1, 0.2]  # noise on nut position
+  cube_rot_noise: [0.0, 0.0, 0.0]   # noise on rotation (euler, radians)
+  cube_mass_min: 0.0002    # kg
+  cube_mass_max: 0.000205     # kg  
+  cube_force_max: [0.0001, 0.0001, 0.0001] # N
+
+  goal_initial_pose:  [0.1, 0.0, 0.301]  # initial position of goal on table
+  goal_noise_xy: [0.18, 1.3]       # noise on goal position at the beginning of training
+  # goal_noise_xy: [0.02, 0.1] #[0.25,  0.4] # noise on goal position at the beginning of training
+  goal_noise_curriculum: false
+  goal_noise_curriculum_scale_step: 1.0
+  goal_noise_curriculum_interval: 200 # after how many episodes to step up the noise
+  goal_noise_curriculum_scale_max: 1.0
+  ep_lenght_noise: 1 # samples, 20*0.08 = 1.6 seconds
+
+rl:
+  pos_action_scale: [0.2, 0.2, 0.2]
+  rot_action_scale: [0.2, 0.2, 0.2]  
+  # pos_action_scale: [0.136, 0.136, 0.136] # 1.7m/s max cartesian speed -> 1.7*0.005 = 0.0085
+  # rot_action_scale: [0.2, 0.2, 0.2] # 2.5 rad/s max rot speed -> 2.5*0.005 = 0.0125
+
+  force_action_scale: [1.0, 1.0, 1.0]
+  torque_action_scale: [1.0, 1.0, 1.0]
+  gripper_action_scale: [1.0, 1.0]
+  deltaq_action_scale: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+  clamp_rot: True
+  clamp_rot_thresh: 1.0e-6
+
+  goal_scale: 100.0     # Reward on pos at end of episode
+  dist_reward_width_scale: 2.0 # width of the "bell curve" of the distance reward. Higher values make it more narrow.
+  kickstart_reward_scale: 0.1
+  kickstart_reward_max: 200.0
+  kickstart_max_level: 100.0 #200
+  action_penalty_scale: 0.001  #0.001  # scale on action penalty
+  singularity_penalty_scale: 1.0  # scale on singularity penalty
+  ending_length: 20           # number of steps at the end of the episode where the reward is not zero
+
+  dist_reward_scale: 100.0    # scale on distance reward (dist_reward = 1 when dist=0)
+  success_bonus: 100.0  # bonus if nut has been lifted
+  max_episode_length: 400 # 400*dt = 2 seconds
+
+  
+
+ctrl:
+  ctrl_type: joint_space_id  #joint_space_id  # {gym_default,
+                              #  joint_space_ik, joint_space_id, 
+                              #  task_space_impedance, operational_space_motion, 
+                              #  open_loop_force, closed_loop_force,
+                              #  hybrid_force_motion}
+  control_gripper: True       # If True, last policy actions is used to control gripper width
+  control_delta_q: False      # If true, actions are processed as delta q.
+  all:
+    jacobian_type: geometric
+    # gripper_prop_gains: [50, 50]
+    gripper_prop_gains: [10, 10]
+    gripper_deriv_gains: [2, 2]
+  gym_default:
+    ik_method: dls
+    joint_prop_gains: [350, 350, 350, 250, 120, 120, 120]
+    joint_deriv_gains: [4, 4, 4, 4, 4, 4, 4]
+    gripper_prop_gains: [500, 500]
+    gripper_deriv_gains: [20, 20]
+    # joint_prop_gains: [40, 40, 40, 40, 40, 40, 40]
+    # joint_deriv_gains: [8, 8, 8, 8, 8, 8, 8]
+  joint_space_ik:
+    ik_method: dls
+    joint_prop_gains: [1, 1, 1, 1, 1, 1, 1]
+    joint_deriv_gains: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+  joint_space_id:
+    ik_method: dls
+    joint_prop_gains: [500, 500, 500, 300, 160, 160, 160] #[250, 250, 250, 150, 80, 80, 80]
+    joint_deriv_gains: [6, 6, 6, 6, 6, 6, 6] #[4, 4, 4, 4, 4, 4, 4]
+  task_space_impedance:
+    motion_ctrl_axes: [1, 1, 1, 1, 1, 1]
+    task_prop_gains: [40, 40, 40, 40, 40, 40]
+    task_deriv_gains: [8, 8, 8, 8, 8, 8]
+  operational_space_motion:
+    motion_ctrl_axes: [1, 1, 1, 1, 1, 1]
+    task_prop_gains: [10,10, 10, 10, 10, 10]
+    task_deriv_gains: [5, 5, 5, 5, 5, 5]
+  open_loop_force:
+    force_ctrl_axes: [0, 0, 1, 0, 0, 0]
+  closed_loop_force:
+    force_ctrl_axes: [0, 0, 1, 0, 0, 0]
+    wrench_prop_gains: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+  hybrid_force_motion:
+    motion_ctrl_axes: [1, 1, 0, 1, 1, 1]
+    task_prop_gains: [40, 40, 40, 40, 40, 40]
+    task_deriv_gains: [8, 8, 8, 8, 8, 8]
+    force_ctrl_axes: [0, 0, 1, 0, 0, 0]
+    wrench_prop_gains: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+wandb_activate: true
+wandb_group: 'FrankaCube_nokickstart'
+wandb_name: ${train.params.config.name}
+wandb_entity: 'simone-tolomei'
+wandb_project: 'td-pick-place'
